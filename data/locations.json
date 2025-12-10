@@ -1,0 +1,43 @@
+{
+  "static_locations": [
+    {
+      "name": "小镇广场",
+      "type": "Square",
+      "description": "The center of town, an open space for gatherings.",
+      "coordinates": [400, 300],
+      "connected_to": ["酒馆", "图书馆"]
+    },
+    {
+      "name": "酒馆",
+      "type": "Saloon",
+      "description": "Gus's workplace, a place for entertainment and drinking.",
+      "coordinates": [520, 300],
+      "connected_to": []
+    },
+    {
+      "name": "图书馆",
+      "type": "Library",
+      "description": "A quiet place with many books. Good for reading, research, and gaining knowledge.",
+      "coordinates": [280, 300],
+      "connected_to": []
+    }
+  ],
+  "home_descriptions": [
+    {
+      "keywords": ["皮埃尔"],
+      "description": "{name}. Also Pierre's General Store, selling seeds and daily supplies."
+    },
+    {
+      "keywords": ["玛妮"],
+      "description": "{name}. Also Marnie's Ranch, selling animals and feed."
+    },
+    {
+      "keywords": ["罗宾", "德米特里厄斯"],
+      "description": "{name}. Also the Carpenter's Shop, for upgrading buildings."
+    },
+    {
+      "keywords": ["default"],
+      "description": "{name}."
+    }
+  ]
+}
