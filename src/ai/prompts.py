@@ -31,7 +31,7 @@ JSON object with the following fields:
 - "target_location": The name of the location you want to go to (if moving), or your current location.
 - "dialogue": A short sentence you might say to yourself or others (in Simplified Chinese).
 - "emoji": A single emoji that best represents your current action (e.g., "🍺", "💤", "🚶", "🍳").
-- "duration": Estimated duration in minutes. The minimum value is 50 (e.g., 120
+- "duration": Estimated duration in minutes. The minimum value is 50 (e.g., 120 for a typical action, 480 for sleeping).
 """
 
 PLANNING_USER_PROMPT = """
