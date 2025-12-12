@@ -6,14 +6,16 @@ from loguru import logger
 
 class CharacterProfile(BaseModel):
     name: str
+    english_name: Optional[str] = None
     age: str
     occupation: str
     personality: str
     features: str
-    quote: str
     relationships: str
     residence: str
+    english_residence: Optional[str] = None
     home_location: str
+    english_home_location: Optional[str] = None
     icon: str = "👤"
     mission: Optional[str] = None
     llm_config: Optional[dict] = (
@@ -25,10 +27,12 @@ class Character:
     def __init__(self, profile: CharacterProfile):
         self.profile = profile
         self.current_location = profile.home_location
+        self.current_location_id = None  # 规范化位置 ID（loc_*），运行时维护
         self.status = "空闲"
         self.emoji = "👤"
         self.memory: List[str] = []
         self.current_plan: str = ""
+        self.last_action_id: Optional[str] = None  # 规范化动作 ID（act_*）
         # 结束时间的 datetime 对象
         self.busy_until: Optional[object] = None
         self.is_thinking: bool = False
@@ -39,8 +43,13 @@ class Character:
         if not self.memory:
             return
 
-        # 记忆太短则不优化，否则会导致行为降级
-        if len(self.memory) < 3:
+        # 识别现有的总结和新的日常记忆
+        # 假设总结的格式包含 "Summary]"
+        existing_summaries = [m for m in self.memory if "Summary]" in m]
+        new_memories = [m for m in self.memory if "Summary]" not in m]
+
+        # 如果新的记忆太少，则不进行优化
+        if len(new_memories) < 3:
             return
 
         from src.ai.prompts import (
@@ -48,7 +57,7 @@ class Character:
             MEMORY_OPTIMIZATION_USER_PROMPT,
         )
 
-        memories_text = "\n".join(self.memory)
+        memories_text = "\n".join(new_memories)
 
         system_prompt = MEMORY_OPTIMIZATION_SYSTEM_PROMPT.format(name=self.profile.name)
         user_prompt = MEMORY_OPTIMIZATION_USER_PROMPT.format(
@@ -63,8 +72,8 @@ class Character:
             summary = client.get_completion(user_prompt, system_prompt)
 
             # 应用优化后的记忆
-            # 添加时间以维护记忆连续性
-            self.memory = [f"[{current_date_str} Summary] {summary}"]
+            # 保留旧的总结，追加新的总结
+            self.memory = existing_summaries + [f"[{current_date_str} Summary] {summary}"]
             self.last_optimized_date = current_date_str
 
             logger.info(f"Memory optimized for {self.profile.name}. Summary: {summary}")
@@ -73,30 +82,55 @@ class Character:
 
     def move_to(self, location_name: str):
         self.current_location = location_name
+        # 更新规范 ID
+        try:
+            from src.core.id_mapper import get_id_manager
+
+            loc_id = get_id_manager().loc_id_from_zh(location_name)
+            self.current_location_id = loc_id or self.current_location_id
+        except Exception:
+            # 兜底：即使映射失败也不影响继续运行
+            pass
+
         self.status = f"正在前往 {location_name}"
 
     def say(self, message: str):
         self.status = f"正在说: {message}"
 
     def is_sleeping(self) -> bool:
-        s = self.status
-        return "Sleeping" in s or "Sleep" in s or "睡觉" in s
+        if self.last_action_id == "act_sleep":
+            return True
+        s = self.status.lower()
+        return "sleeping" in s or "sleep" in s or "睡觉" in s or "bed" in s
 
     def is_talking(self) -> bool:
-        s = self.status
-        return "Talking" in s or "Said" in s or "正在与" in s or "对" in s
+        if self.last_action_id == "act_chat":
+            return True
+        s = self.status.lower()
+        return (
+            "talking" in s
+            or "said" in s
+            or "正在说" in s
+            or "正在与" in s
+            or "对" in s
+            or "回复" in s
+        )
 
     def is_working(self) -> bool:
-        s = self.status
-        return "Work" in s or "工作" in s
+        if self.last_action_id == "act_work":
+            return True
+        s = self.status.lower()
+        return "working" in s or "work" in s or "工作" in s
 
     def is_eating(self) -> bool:
-        s = self.status
-        return "Eat" in s or "Breakfast" in s or "吃饭" in s
+        if self.last_action_id == "act_eat":
+            return True
+        s = self.status.lower()
+        return "eating" in s or "eat" in s or "breakfast" in s or "吃饭" in s
 
     def is_thinking_status(self) -> bool:
-        s = self.status
-        return "Thinking" in s or "思考中" in s
+        s = self.status.lower()
+        return "think" in s or "thinking" in s or "思考中" in s
 
     def add_memory(self, memory: str):
         self.memory.append(memory)
@@ -104,17 +138,22 @@ class Character:
     @staticmethod
     def from_dict(data: dict) -> "Character":
         residence = data.get("residence", f"{data.get('name', 'Unknown')}的家")
+        english_residence = data.get("english_residence")
         return Character(
             CharacterProfile(
                 name=data.get("name", "Unknown"),
+                english_name=data.get("english_name"),
                 age=data.get("age", "Unknown"),
                 occupation=data.get("occupation", "Unknown"),
                 personality=data.get("personality", "Unknown"),
                 features=data.get("features", "Unknown"),
-                quote=data.get("quote", "Unknown"),
                 relationships=data.get("relationships", "Unknown"),
                 residence=residence,
+                english_residence=english_residence,
                 home_location=data.get("home_location", residence),
+                english_home_location=data.get(
+                    "english_home_location", english_residence
+                ),
                 icon=data.get("icon", "👤"),
                 mission=data.get("mission"),
                 llm_config=data.get("llm_config"),

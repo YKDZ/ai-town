@@ -4,7 +4,6 @@ from datetime import datetime
 from typing import List, Dict, Any
 import contextvars
 
-# ContextVar for storing current simulation time globally for logging
 sim_time_var = contextvars.ContextVar("sim_time", default="N/A")
 
 
@@ -19,13 +18,18 @@ def loguru_formatter(record):
     )
 
 
-def get_log_filename():
-    """Generate a unique log filename based on current time."""
-    return f"logs/app.{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.log"
+def format_timestamp_for_filename(dt: datetime) -> str:
+    return dt.strftime("%Y-%m-%d_%H-%M-%S")
+
+
+def get_log_filename(session_start: datetime = None):
+    """Generate a unique log filename based on real time."""
+    t = datetime.now()
+    return f"logs/app_{t.strftime('%Y-%m-%d_%H-%M-%S_%f')}.log"
 
 
 class SimulationLogger:
-    def __init__(self, save_dir="logs"):
+    def __init__(self, save_dir="logs", session_start: datetime = None):
         self.save_dir = save_dir
         if not os.path.exists(save_dir):
             os.makedirs(save_dir)

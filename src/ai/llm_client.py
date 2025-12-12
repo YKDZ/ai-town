@@ -62,6 +62,9 @@ class LLMClient:
             return "LLM 客户端未初始化。"
 
         try:
+            logger.debug(
+                f"LLM Request [Text]:\nSystem: {system_prompt}\nUser: {prompt}"
+            )
             response = self.client.chat.completions.create(
                 model=self.model,
                 messages=[
@@ -71,7 +74,9 @@ class LLMClient:
                 temperature=self.temperature,
                 stream=False,
             )
-            return response.choices[0].message.content.strip()
+            content = response.choices[0].message.content.strip()
+            logger.debug(f"LLM Response [Text]:\n{content}")
+            return content
         except Exception as e:
             logger.error(f"调用 LLM 时出错: {e}")
             return f"Error: {e}"
@@ -84,6 +89,9 @@ class LLMClient:
             return "{}"
 
         try:
+            logger.debug(
+                f"LLM Request [JSON]:\nSystem: {system_prompt}\nUser: {prompt}"
+            )
             response = self.client.chat.completions.create(
                 model=self.model,
                 messages=[
@@ -97,7 +105,9 @@ class LLMClient:
                 temperature=self.temperature,
                 stream=False,
             )
-            return response.choices[0].message.content.strip()
+            content = response.choices[0].message.content.strip()
+            logger.debug(f"LLM Response [JSON]:\n{content}")
+            return content
         except Exception as e:
             logger.error(f"Error calling LLM: {e}")
             return "{}"

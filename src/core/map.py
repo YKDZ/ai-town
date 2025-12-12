@@ -20,6 +20,7 @@ class Notice(BaseModel):
 
 class Location(BaseModel):
     name: str
+    english_name: Optional[str] = None
     type: LocationType
     description: str
     connected_locations: List[str] = []
@@ -49,6 +50,7 @@ class GameMap:
                 self.add_location(
                     Location(
                         name=loc_data["name"],
+                        english_name=loc_data.get("english_name"),
                         type=loc_type,
                         description=loc_data["description"],
                         coordinates=tuple(loc_data["coordinates"]),

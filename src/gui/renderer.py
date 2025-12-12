@@ -53,7 +53,7 @@ class Renderer:
                 ui_width = 300
                 map_view_width = self.screen.get_width() - ui_width
 
-                # 同时检查回放条（如果启用）
+                # 回放条
                 is_replay = hasattr(self.sim, "is_replay") and self.sim.is_replay
                 bar_height = 60 if is_replay else 0
                 map_view_height = self.screen.get_height() - bar_height
@@ -349,7 +349,9 @@ class Renderer:
 
                 partner_name = None
                 if "Talking to " in char.status:
-                    partner_name = char.status.split("Talking to ")[1].replace("...", "")
+                    partner_name = char.status.split("Talking to ")[1].replace(
+                        "...", ""
+                    )
                 elif "正在与" in char.status:
                     try:
                         # "正在与 {name} 交谈..."

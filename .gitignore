@@ -14,3 +14,5 @@ wheels/
 logs
 
 ollama
+
+*.zip
