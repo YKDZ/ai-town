@@ -1,7 +1,8 @@
 import os
-from openai import OpenAI
+
 from dotenv import load_dotenv
 from loguru import logger
+from openai import OpenAI
 
 load_dotenv()
 

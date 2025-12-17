@@ -1,17 +1,12 @@
-import os
 import json
-import math
+import os
 import random
 import threading
-from typing import List
-from loguru import logger
 from datetime import timedelta
+from typing import List
 
-from src.core.game_time import GameTime
-from src.config import Config
-from src.core.map import GameMap, LocationType, Location, Notice
-from src.core.logger import SimulationLogger, sim_time_var
-from src.entities.character import Character
+from loguru import logger
+
 from src.ai.llm_client import LLMClient
 from src.ai.prompts import (
     PLANNING_SYSTEM_PROMPT,
@@ -19,12 +14,16 @@ from src.ai.prompts import (
     DIALOGUE_SYSTEM_PROMPT,
     DIALOGUE_USER_PROMPT,
 )
+from src.config import Config
+from src.core.game_time import GameTime
 from src.core.id_mapper import init_id_mappings, get_id_manager
+from src.core.logger import SimulationLogger, sim_time_var
+from src.core.map import GameMap
 from src.core.response_validator import (
     LLMResponseValidator,
-    ContextBuilder,
-    ResponseConverter,
 )
+from src.entities.character import Character
+from src.entities.location import Notice
 
 
 class Simulation:
@@ -69,14 +68,11 @@ class Simulation:
         self.duration_days = duration_days
         self.event_day = duration_days
 
-        # 计算结束时间：模拟从开始时间持续duration_days天，结束在最后一天的22:00
-        # 例如：从7月28日6点开始，持续2天，则结束在7月30日22点
         end_day = self.game_time.current_time + timedelta(days=duration_days)
         self.end_time = end_day.replace(hour=22, minute=0, second=0, microsecond=0)
 
         self.interaction_cooldowns = {}
-        # Use simulation start time for logger session id
-        self.logger = SimulationLogger(session_start=self.game_time.current_time)
+        self.logger = SimulationLogger()
 
         self._load_characters()
         self._init_id_mappings()
@@ -95,7 +91,6 @@ class Simulation:
                 try:
                     char = Character.from_dict(char_data)
 
-                    # 如果配置了，为居民初始化专用的 LLM 客户端
                     if char.profile.llm_config:
                         try:
                             logger.info(
@@ -161,19 +156,10 @@ class Simulation:
             raise
 
     def _init_homes(self):
-        # 将住宅按环形布局放置在小镇广场周围
-        center_x = 400
-        center_y = 300
-        radius = 250
-
-        # 按住所分组居民
-        residences = {}
-
+        # 先处理配置中的通用任务
         for char in self.characters:
-            # 处理配置中的通用任务（如果有）
             if char.profile.mission:
                 try:
-                    # 计算目标日期
                     target_date = self.game_time.current_time + timedelta(
                         days=self.duration_days
                     )
@@ -191,126 +177,57 @@ class Simulation:
                 except Exception as e:
                     logger.error(f"Failed to load mission for {char.profile.name}: {e}")
 
-            res_name = char.profile.residence
-            # 按住所分组居民
-            if res_name not in residences:
-                residences[res_name] = []
-            residences[res_name].append(char)
-
-        target_date = self.game_time.current_time + timedelta(days=self.duration_days)
-        # 酒馆特殊处理
-        # 使用 ID 判断是否为酒馆
-        id_manager = get_id_manager()
-        
-        homes_to_place = []
-        for r in residences.keys():
-            loc_id = id_manager.loc_id_from_zh(r)
-            if loc_id != "loc_saloon":
-                homes_to_place.append(r)
-                
-        num_homes = len(homes_to_place)
-
-        angle_step = 2 * math.pi / num_homes if num_homes > 0 else 0
-
-        # 加载住宅描述
-        home_desc_config = []
+        # 统一放置住宅并初始化角色位置
         try:
-            with open("data/locations.json", "r", encoding="utf-8") as f:
-                data = json.load(f)
-                home_desc_config = data.get("home_descriptions", [])
+            from src.core.map import place_homes_for_characters
+
+            place_homes_for_characters(self.game_map, self.characters)
         except Exception as e:
-            logger.error(f"Failed to load home descriptions: {e}")
+            logger.error(f"Failed to place homes for characters: {e}")
 
-        for i, home_name in enumerate(homes_to_place):
-            angle = i * angle_step
-            x = int(center_x + radius * math.cos(angle))
-            y = int(center_y + radius * math.sin(angle))
+        # 注册住宅的规范 ID（若提供英文名），并更新角色 current_location_id
+        try:
+            id_manager = get_id_manager()
 
-            # 特定住宅的自定义描述，默认回退为名称
-            description = f"{home_name}."  # 默认回退
+            # 分组 residence -> [char]
+            residences = {}
+            for c in self.characters:
+                res_name = c.profile.residence
+                residences.setdefault(res_name, []).append(c)
 
-            # 查找匹配的描述
-            found_match = False
-            for config in home_desc_config:
-                keywords = config.get("keywords", [])
-                if "default" in keywords:
+            for home_name, chars in residences.items():
+                if home_name == "酒馆" or not chars:
                     continue
-
-                for kw in keywords:
-                    if kw in home_name:
-                        description = config["description"].format(name=home_name)
-                        found_match = True
-                        break
-                if found_match:
-                    break
-
-            if not found_match:
-                # 如果没有匹配则使用默认描述
-                for config in home_desc_config:
-                    if "default" in config.get("keywords", []):
-                        description = config["description"].format(name=home_name)
-                        break
-
-            # Find English name for home
-            english_home_name = None
-            if home_name in residences and residences[home_name]:
-                english_home_name = residences[home_name][
-                    0
-                ].profile.english_home_location
-
-            # 将地点添加到地图
-            loc = Location(
-                name=home_name,
-                english_name=english_home_name,
-                type=LocationType.HOME,
-                description=description,
-                coordinates=(x, y),
-            )
-            self.game_map.add_location(loc)
-
-            # Register home ID if English name is available
-            if english_home_name:
-                id_manager = get_id_manager()
-                canonical_id = f"loc_{english_home_name.lower().replace(' ', '_')}"
-                try:
-                    id_manager.register_location(
-                        canonical_id, home_name, english_home_name
-                    )
-                except ValueError:
-                    # Ignore if already registered (e.g. Saloon is both a static location and a home)
-                    pass
-
-            # 将住宅与小镇广场连接
-            self.game_map.connect_locations(home_name, "小镇广场")
-
-            # 更新居住于此的居民坐标
-            if home_name in residences:
-                for char in residences[home_name]:
-                    char.profile.home_location = home_name
-                    char.current_location = home_name
-                    # 记录规范 ID
+                english_home_name = chars[0].profile.english_home_location
+                if english_home_name:
+                    canonical_id = f"loc_{english_home_name.lower().replace(' ', '_')}"
                     try:
-                        id_manager = get_id_manager()
-                        char.current_location_id = id_manager.loc_id_from_zh(home_name)
-                    except Exception:
+                        id_manager.register_location(
+                            canonical_id, home_name, english_home_name
+                        )
+                    except ValueError:
+                        # 已存在则忽略
                         pass
-                    char.position = (x, y)
 
-        # 处理居住在 "酒馆" 的居民
-        if "酒馆" in residences:
-            saloon = self.game_map.get_location("酒馆")
-            if saloon:
-                for char in residences["酒馆"]:
-                    char.profile.home_location = "酒馆"
-                    char.current_location = "酒馆"
-                    char.position = saloon.coordinates
+            # 为所有角色更新 current_location_id（兜底）
+            for c in self.characters:
+                try:
+                    c.current_location_id = id_manager.loc_id_from_zh(
+                        c.current_location
+                    )
+                except Exception:
+                    pass
+        except Exception as e:
+            logger.error(f"Failed to register home location ids: {e}")
 
     def update(self) -> bool:
         self.game_time.tick(minutes=Config.MINUTES_PER_TICK)
         sim_time_var.set(self.game_time.get_display_string())
 
         # 处于最后一天晚上（20点之后）且所有人都睡觉时结束模拟
-        early_end_threshold = self.end_time - timedelta(hours=2)  # 22:00 - 2小时 = 20:00
+        early_end_threshold = self.end_time - timedelta(
+            hours=2
+        )
         if self.game_time.current_time >= early_end_threshold:
             all_sleeping = all(char.is_sleeping() for char in self.characters)
             if all_sleeping:
@@ -328,7 +245,6 @@ class Simulation:
         return True
 
     def stop(self):
-        """停止模拟并保存日志。"""
         path = self.logger.save()
         if path:
             logger.info(f"Simulation logs saved to {path}")
@@ -377,10 +293,9 @@ class Simulation:
                 cooldown_minutes = Config.INTERACTION_COOLDOWN_MINUTES
                 if len(chars) >= 3:
                     cooldown_minutes = 15
-                
+
                 self.interaction_cooldowns[pair_key] = (
-                    self.game_time.current_time
-                    + timedelta(minutes=cooldown_minutes)
+                    self.game_time.current_time + timedelta(minutes=cooldown_minutes)
                 )
 
     def _build_context_info(self, exclude_char: Character = None):
@@ -442,7 +357,7 @@ class Simulation:
         c2.is_thinking = True
         c1.status = f"正在与 {c2.profile.name} 交谈..."
         c2.status = f"正在与 {c1.profile.name} 交谈..."
-        
+
         # 设置动作 ID
         c1.last_action_id = "act_chat"
         c2.last_action_id = "act_chat"
@@ -703,7 +618,7 @@ class Simulation:
                 # 这会自动将 target_location ID 转换为中文名称
                 try:
                     validated_plan = LLMResponseValidator.validate_planning_response(
-                        plan, current_char_id=None
+                        plan
                     )
                     action = validated_plan["action"]
                     target_location = validated_plan["target_location"]
@@ -743,10 +658,10 @@ class Simulation:
                     if not aid:
                         # 尝试从英文查找 ID
                         aid = id_manager.act_id_from_en(action)
-                    
+
                     if aid:
                         action_id = aid
-                
+
                 char.last_action_id = action_id
 
                 # 执行计划
@@ -756,13 +671,15 @@ class Simulation:
                     # 即使不移动也更新当前地点的规范 ID（防止初始 None）
                     try:
                         if char.current_location_id is None:
-                            char.current_location_id = id_manager.loc_id_from_zh(target_location)
+                            char.current_location_id = id_manager.loc_id_from_zh(
+                                target_location
+                            )
                     except Exception:
                         pass
 
                 # 处理公告发布
                 # 使用规范 ID 检查
-                is_posting_notice = (action_id == "act_post_notice")
+                is_posting_notice = action_id == "act_post_notice"
 
                 # 检查地点：使用 ID 判断
                 if is_posting_notice and char.current_location_id == "loc_town_square":
@@ -798,8 +715,8 @@ class Simulation:
                     self.game_time.get_full_timestamp(),
                     "plan",
                     character=char.profile.name,
-                    action=action_display, # 记录显示名称
-                    action_id=action_id,   # 同时也记录 ID 以便调试
+                    action=action_display,  # 记录显示名称
+                    action_id=action_id,  # 同时也记录 ID 以便调试
                     target_location=target_location,
                     dialogue=dialogue,
                     emoji=char.emoji,

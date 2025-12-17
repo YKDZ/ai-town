@@ -35,7 +35,7 @@ def main():
 
     # Ensure logs directory exists
     os.makedirs("logs", exist_ok=True)
-    logger.add(get_log_filename(session_start), format=loguru_formatter, level="DEBUG")
+    logger.add(get_log_filename(), format=loguru_formatter, level="DEBUG")
     app.run()
 
 

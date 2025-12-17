@@ -1,8 +1,10 @@
-import pygame
-import sys
 import os
-from src.core.simulation import Simulation
+import sys
+
+import pygame
+
 from src.core.replay import ReplaySimulation
+from src.core.simulation import Simulation
 from src.gui.renderer import Renderer
 
 
@@ -68,37 +70,18 @@ class MainWindow:
                 # 回放控制
                 if hasattr(self.simulation, "is_replay") and self.simulation.is_replay:
                     if event.key == pygame.K_SPACE:
-                        self.simulation.paused = not self.simulation.paused
+                        # 统一使用回放 API
+                        self.simulation.toggle_pause()
                     elif event.key == pygame.K_UP:
-                        self.simulation.speed = min(10.0, self.simulation.speed + 0.5)
+                        self.simulation.change_speed(+0.5)
                     elif event.key == pygame.K_DOWN:
-                        self.simulation.speed = max(0.5, self.simulation.speed - 0.5)
+                        self.simulation.change_speed(-0.5)
                     elif event.key == pygame.K_RIGHT:
                         # 向前跳 10 分钟
-                        from datetime import timedelta
-
-                        if self.simulation.current_time and self.simulation.end_time:
-                            self.simulation.current_time = min(
-                                self.simulation.end_time,
-                                self.simulation.current_time + timedelta(minutes=10),
-                            )
-                            self.simulation.game_time.current_time = (
-                                self.simulation.current_time
-                            )
-                            self.simulation._update_character_states()
+                        self.simulation.jump_minutes(+10)
                     elif event.key == pygame.K_LEFT:
                         # 向后跳 10 分钟
-                        from datetime import timedelta
-
-                        if self.simulation.current_time and self.simulation.start_time:
-                            self.simulation.current_time = max(
-                                self.simulation.start_time,
-                                self.simulation.current_time - timedelta(minutes=10),
-                            )
-                            self.simulation.game_time.current_time = (
-                                self.simulation.current_time
-                            )
-                            self.simulation._update_character_states()
+                        self.simulation.jump_minutes(-10)
 
             elif event.type == pygame.MOUSEBUTTONDOWN:
                 # 检查是否点击了时间轴
@@ -115,7 +98,7 @@ class MainWindow:
                         bar_w = map_view_width - 40
                         if bar_x <= mx <= bar_x + bar_w:
                             progress = (mx - bar_x) / bar_w
-                            self.simulation.set_time(progress)
+                            self.simulation.set_time_by_progress(progress)
 
     def _load_latest_replay(self):
         log_dir = "logs"

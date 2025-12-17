@@ -16,3 +16,7 @@ logs
 ollama
 
 *.zip
+
+.env
+
+.idea

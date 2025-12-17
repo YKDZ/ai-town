@@ -1,6 +1,15 @@
 from enum import Enum
 from typing import List, Optional
 
+from pydantic import BaseModel
+
+
+class Notice(BaseModel):
+    content: str
+    author: str
+    created_at: str
+
+
 class LocationType(Enum):
     SQUARE = "Square"
     SALOON = "Saloon"

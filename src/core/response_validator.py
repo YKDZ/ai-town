@@ -1,31 +1,18 @@
-"""
-LLM 响应验证和转换：处理规范 ID 的验证和转换为内部格式
-"""
-
-import json
 import re
 from typing import Dict, Optional, Any
+
 from loguru import logger
 
 from src.core.id_mapper import get_id_manager
 
 
 class LLMResponseValidator:
-    """验证和转换 LLM 输出，处理 ID 到位置名称的转换"""
-
     @staticmethod
     def validate_planning_response(
-        response_json: Dict[str, Any], current_char_id: str = None
+        response_json: Dict[str, Any]
     ) -> Dict[str, Any]:
         """
         验证和转换规划响应
-
-        Args:
-            response_json: LLM 返回的 JSON 对象
-            current_char_id: 当前角色的规范 ID（用于日志）
-
-        Returns:
-            验证并转换后的响应字典，其中 target_location 已转换为中文名称
         """
         manager = get_id_manager()
 
@@ -81,12 +68,6 @@ class LLMResponseValidator:
     def validate_dialogue_response(response_json: Dict[str, Any]) -> Dict[str, Any]:
         """
         验证和转换对话响应
-
-        Args:
-            response_json: LLM 返回的 JSON 对象
-
-        Returns:
-            验证后的响应字典
         """
         # 验证必需字段
         if "content" not in response_json:
@@ -96,7 +77,7 @@ class LLMResponseValidator:
         if not content:
             raise ValueError("对话内容不能为空")
 
-        # 规范化内容（如果需要转换任何 ID）
+        # 规范化内容
         manager = get_id_manager()
         normalized_content = manager.normalize_output(content)
 
@@ -106,12 +87,6 @@ class LLMResponseValidator:
     def extract_and_convert_location_id(location_id: str) -> Optional[str]:
         """
         提取并转换位置 ID 为中文名称
-
-        Args:
-            location_id: 规范位置 ID（如 "loc_saloon"）
-
-        Returns:
-            中文位置名称，如果无效则返回 None
         """
         manager = get_id_manager()
 
@@ -130,16 +105,6 @@ class LLMResponseValidator:
     def extract_character_name_from_reference(char_reference: str) -> Optional[str]:
         """
         从字符引用提取角色名称
-        可能的格式：
-        - "Alice" (英文名)
-        - "爱丽丝" (中文名)
-        - "char_alice" (ID)
-
-        Args:
-            char_reference: 角色引用
-
-        Returns:
-            中文角色名称，如果无效则返回 None
         """
         manager = get_id_manager()
         char_reference = char_reference.strip()
@@ -202,21 +167,10 @@ class ContextBuilder:
     @staticmethod
     def build_characters_context(
         characters_list: list,
-        game_map: Any,
         exclude_char: Any = None,
-        include_all: bool = False,
     ) -> str:
         """
         构建角色位置上下文
-
-        Args:
-            characters_list: 角色列表
-            game_map: 游戏地图对象（用于查询位置）
-            exclude_char: 要排除的角色
-            include_all: 是否包含所有角色（True）或仅包含其他角色（False）
-
-        Returns:
-            格式化的角色上下文字符串
         """
         manager = get_id_manager()
         char_contexts = []
@@ -232,7 +186,6 @@ class ContextBuilder:
 
             # 获取角色当前位置
             current_loc_zh = char.current_location
-            current_loc = game_map.get_location(current_loc_zh)
             loc_id = manager.loc_id_from_zh(current_loc_zh)
 
             if loc_id:
@@ -261,10 +214,6 @@ class ResponseConverter:
     ) -> Dict[str, Any]:
         """
         验证后的响应已经包含中文位置名称，可以直接使用
-        这个方法提供了一个明确的转换点，以防需要进一步处理
-
-        Returns:
-            内部格式的响应
         """
         return validated_response
 
@@ -272,12 +221,6 @@ class ResponseConverter:
     def normalize_character_references(text: str) -> str:
         """
         规范化文本中的角色引用
-
-        Args:
-            text: 文本内容
-
-        Returns:
-            规范化后的文本（使用中文名称）
         """
         manager = get_id_manager()
         result = text

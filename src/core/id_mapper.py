@@ -1,11 +1,6 @@
-"""
-ID 映射器：管理规范化 ID 与中文名称之间的双向映射。
-支持角色和位置的规范化 ID 系统。
-"""
-
 import re
-from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass
+from typing import Dict, List, Optional, Protocol, runtime_checkable
 
 
 @dataclass
@@ -17,7 +12,46 @@ class IDMapping:
     en_name: str
 
 
-class CharacterIDMapper:
+@runtime_checkable
+class _MapperLike(Protocol):
+    PREFIX: str
+    id_to_zh: Dict[str, str]
+    id_to_en: Dict[str, str]
+    zh_to_id: Dict[str, str]
+
+
+class _ZhEnDisplayMixin:
+    """提供通用的显示名与输出规范化逻辑（依赖 PREFIX/id_to_zh/id_to_en/zh_to_id）。"""
+
+    def _get_display_name_common(self: _MapperLike, identifier: str) -> str:
+        # 如果输入是 ID
+        if identifier.startswith(f"{self.PREFIX}_"):
+            zh = self.id_to_zh.get(identifier)
+            en = self.id_to_en.get(identifier)
+            if zh and en:
+                return f"{en} ({zh})"
+            return identifier
+
+        # 如果输入是中文名称
+        zh_name = identifier
+        canonical_id = self.zh_to_id.get(zh_name)
+        if canonical_id:
+            en = self.id_to_en.get(canonical_id)
+            if en:
+                return f"{en} ({zh_name})"
+
+        return identifier
+
+    def _normalize_output_common(self: _MapperLike, text: str) -> str:
+        # 将形如 {{id}} 或 [id] 的占位符替换为中文名称
+        result = text
+        for cid, zh_name in self.id_to_zh.items():
+            result = re.sub(rf"\{{\{{[\s]*{re.escape(cid)}[\s]*\}}\}}", zh_name, result)
+            result = re.sub(rf"\[[\s]*{re.escape(cid)}[\s]*\]", zh_name, result)
+        return result
+
+
+class CharacterIDMapper(_ZhEnDisplayMixin):
     """角色 ID 映射器"""
 
     PREFIX = "char"
@@ -58,37 +92,14 @@ class CharacterIDMapper:
 
     def get_display_name(self, identifier: str) -> str:
         """获取显示名称（支持 ID 或中文名称作为输入）"""
-        # 如果输入是 ID
-        if identifier.startswith(f"{self.PREFIX}_"):
-            zh = self.get_zh_from_id(identifier)
-            en = self.get_en_from_id(identifier)
-            if zh and en:
-                return f"{en} ({zh})"
-            return identifier
-
-        # 如果输入是中文名称
-        zh_name = identifier
-        char_id = self.get_id_from_zh(zh_name)
-        if char_id:
-            en = self.get_en_from_id(char_id)
-            if en:
-                return f"{en} ({zh_name})"
-
-        return identifier
+        return self._get_display_name_common(identifier)
 
     def normalize_output(self, text: str) -> str:
         """将 LLM 输出中的 ID 转换为中文名称（用于显示）"""
-        result = text
-        for char_id, zh_name in self.id_to_zh.items():
-            # 替换格式如 {{char_abigail}} 或 [char_abigail] 的 ID
-            result = re.sub(
-                rf"\{{{{[\s]*{re.escape(char_id)}[\s]*\}}}}", zh_name, result
-            )
-            result = re.sub(rf"\[[\s]*{re.escape(char_id)}[\s]*\]", zh_name, result)
-        return result
+        return self._normalize_output_common(text)
 
 
-class LocationIDMapper:
+class LocationIDMapper(_ZhEnDisplayMixin):
     """位置 ID 映射器"""
 
     PREFIX = "loc"
@@ -105,7 +116,6 @@ class LocationIDMapper:
                 f"位置 ID 必须以 '{self.PREFIX}_' 开头，收到: {canonical_id}"
             )
 
-        # 验证唯一性
         if canonical_id in self.id_to_zh:
             if self.id_to_zh[canonical_id] == zh_name:
                 return
@@ -120,47 +130,20 @@ class LocationIDMapper:
         self.id_to_en[canonical_id] = en_name
 
     def get_id_from_zh(self, zh_name: str) -> Optional[str]:
-        """从中文名称获取规范 ID"""
         return self.zh_to_id.get(zh_name)
 
     def get_zh_from_id(self, canonical_id: str) -> Optional[str]:
-        """从规范 ID 获取中文名称"""
         return self.id_to_zh.get(canonical_id)
 
     def get_en_from_id(self, canonical_id: str) -> Optional[str]:
-        """从规范 ID 获取英文名称"""
         return self.id_to_en.get(canonical_id)
 
     def get_display_name(self, identifier: str) -> str:
-        """获取显示名称（支持 ID 或中文名称作为输入）"""
-        # 如果输入是 ID
-        if identifier.startswith(f"{self.PREFIX}_"):
-            zh = self.get_zh_from_id(identifier)
-            en = self.get_en_from_id(identifier)
-            if zh and en:
-                return f"{en} ({zh})"
-            return identifier
-
-        # 如果输入是中文名称
-        zh_name = identifier
-        loc_id = self.get_id_from_zh(zh_name)
-        if loc_id:
-            en = self.get_en_from_id(loc_id)
-            if en:
-                return f"{en} ({zh_name})"
-
-        return identifier
+        return self._get_display_name_common(identifier)
 
     def normalize_output(self, text: str) -> str:
         """将 LLM 输出中的 ID 转换为中文名称（用于显示）"""
-        result = text
-        for loc_id, zh_name in self.id_to_zh.items():
-            # 替换格式如 {{loc_town_square}} 或 [loc_town_square] 的 ID
-            result = re.sub(
-                rf"\{{{{[\s]*{re.escape(loc_id)}[\s]*\}}}}", zh_name, result
-            )
-            result = re.sub(rf"\[[\s]*{re.escape(loc_id)}[\s]*\]", zh_name, result)
-        return result
+        return self._normalize_output_common(text)
 
 
 class ActionIDMapper:
@@ -199,6 +182,7 @@ class ActionIDMapper:
         return self.id_to_en.get(canonical_id)
 
     def get_display_name(self, identifier: str) -> str:
+        # 保持原有行为：仅当输入是 ID 时进行格式化
         if identifier.startswith(f"{self.PREFIX}_"):
             zh = self.get_zh_from_id(identifier)
             en = self.get_en_from_id(identifier)

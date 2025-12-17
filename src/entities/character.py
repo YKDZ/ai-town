@@ -1,7 +1,7 @@
-from pydantic import BaseModel, Field
 from typing import Optional, List
-import os
+
 from loguru import logger
+from pydantic import BaseModel
 
 
 class CharacterProfile(BaseModel):
@@ -39,6 +39,14 @@ class Character:
         self.llm_client = None
         self.last_optimized_date = None
 
+    # ---- 内部辅助：去重 is_* 判断中的通用模式 ----
+    def _has_action(self, action_id: str) -> bool:
+        return self.last_action_id == action_id
+
+    def _status_has_any(self, keywords: List[str]) -> bool:
+        s = (self.status or "").lower()
+        return any(kw in s for kw in keywords)
+
     def optimize_memory(self, llm_client, current_date_str):
         if not self.memory:
             return
@@ -73,7 +81,9 @@ class Character:
 
             # 应用优化后的记忆
             # 保留旧的总结，追加新的总结
-            self.memory = existing_summaries + [f"[{current_date_str} Summary] {summary}"]
+            self.memory = existing_summaries + [
+                f"[{current_date_str} Summary] {summary}"
+            ]
             self.last_optimized_date = current_date_str
 
             logger.info(f"Memory optimized for {self.profile.name}. Summary: {summary}")
@@ -98,39 +108,29 @@ class Character:
         self.status = f"正在说: {message}"
 
     def is_sleeping(self) -> bool:
-        if self.last_action_id == "act_sleep":
+        if self._has_action("act_sleep"):
             return True
-        s = self.status.lower()
-        return "sleeping" in s or "sleep" in s or "睡觉" in s or "bed" in s
+        return self._status_has_any(["sleeping", "sleep", "睡觉", "bed"])
 
     def is_talking(self) -> bool:
-        if self.last_action_id == "act_chat":
+        if self._has_action("act_chat"):
             return True
-        s = self.status.lower()
-        return (
-            "talking" in s
-            or "said" in s
-            or "正在说" in s
-            or "正在与" in s
-            or "对" in s
-            or "回复" in s
+        return self._status_has_any(
+            ["talking", "said", "正在说", "正在与", "对", "回复"]
         )
 
     def is_working(self) -> bool:
-        if self.last_action_id == "act_work":
+        if self._has_action("act_work"):
             return True
-        s = self.status.lower()
-        return "working" in s or "work" in s or "工作" in s
+        return self._status_has_any(["working", "work", "工作"])
 
     def is_eating(self) -> bool:
-        if self.last_action_id == "act_eat":
+        if self._has_action("act_eat"):
             return True
-        s = self.status.lower()
-        return "eating" in s or "eat" in s or "breakfast" in s or "吃饭" in s
+        return self._status_has_any(["eating", "eat", "breakfast", "吃饭"])
 
     def is_thinking_status(self) -> bool:
-        s = self.status.lower()
-        return "think" in s or "thinking" in s or "思考中" in s
+        return self._status_has_any(["think", "thinking", "思考中"])
 
     def add_memory(self, memory: str):
         self.memory.append(memory)

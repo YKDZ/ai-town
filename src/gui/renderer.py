@@ -1,9 +1,10 @@
-import pygame
 import math
-from src.core.simulation import Simulation
-from src.core.map import LocationType
-
 import os
+
+import pygame
+
+from src.core.simulation import Simulation
+from src.entities.location import LocationType
 
 # 颜色
 WHITE = (255, 255, 255)
@@ -581,13 +582,46 @@ class Renderer:
 
         self._draw_tooltip_box(lines, pos)
 
+    def _wrap_text(self, text: str, max_width: int):
+        """
+        中英文通用的像素级自动换行
+        """
+        lines = []
+        current_line = ""
+
+        for ch in text:
+            test_line = current_line + ch
+            if self.font.size(test_line)[0] <= max_width:
+                current_line = test_line
+            else:
+                if current_line:
+                    lines.append(current_line)
+                current_line = ch
+
+        if current_line:
+            lines.append(current_line)
+
+        return lines
+
     def _draw_character_tooltip(self, char, pos):
+        max_text_width = 300
+
         lines = [
             f"姓名: {char.profile.name}",
-            f"状态: {self._translate_status(char.status)}",
-            f"位置: {char.current_location}",
-            f"职业: {char.profile.occupation}",
         ]
+
+        # 状态可能很长，单独处理
+        status_text = f"状态: {self._translate_status(char.status)}"
+        status_lines = self._wrap_text(status_text, max_text_width)
+        lines.extend(status_lines)
+
+        lines.extend(
+            [
+                f"位置: {char.current_location}",
+                f"职业: {char.profile.occupation}",
+            ]
+        )
+
         self._draw_tooltip_box(lines, pos)
 
     def _draw_tooltip_box(self, lines, pos):
@@ -604,40 +638,6 @@ class Renderer:
         box_rect = pygame.Rect(pos[0] + 10, pos[1] + 10, max_width + 10, height + 10)
 
         # 确保提示框在屏幕内
-        if box_rect.right > self.screen.get_width():
-            box_rect.x -= box_rect.width + 20
-        if box_rect.bottom > self.screen.get_height():
-            box_rect.y -= box_rect.height + 20
-
-        pygame.draw.rect(self.screen, (255, 255, 220), box_rect)
-        pygame.draw.rect(self.screen, BLACK, box_rect, 1)
-
-        y = box_rect.y + 5
-        for surf in surfaces:
-            self.screen.blit(surf, (box_rect.x + 5, y))
-            y += surf.get_height() + 2
-
-    def _draw_character_tooltip(self, char, pos):
-        lines = [
-            f"姓名: {char.profile.name}",
-            f"状态: {self._translate_status(char.status)}",
-            f"位置: {char.current_location}",
-            f"职业: {char.profile.occupation}",
-        ]
-
-        # 计算提示框大小
-        max_width = 0
-        height = 0
-        surfaces = []
-        for line in lines:
-            surf = self.font.render(line, True, BLACK)
-            max_width = max(max_width, surf.get_width())
-            height += surf.get_height() + 2
-            surfaces.append(surf)
-
-        box_rect = pygame.Rect(pos[0] + 10, pos[1] + 10, max_width + 10, height + 10)
-
-        # 确保提示框保持在屏幕内
         if box_rect.right > self.screen.get_width():
             box_rect.x -= box_rect.width + 20
         if box_rect.bottom > self.screen.get_height():

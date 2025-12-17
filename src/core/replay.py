@@ -1,14 +1,16 @@
 import json
 import os
-import math
 from datetime import datetime, timedelta
-from typing import List, Dict, Any
+from typing import List
+
 from loguru import logger
 
-from src.core.game_time import GameTime
-from src.core.map import GameMap, LocationType, Location
-from src.entities.character import Character
 from src.config import Config
+from src.core.game_time import GameTime
+from src.core.map import GameMap
+from src.entities.character import Character
+from src.entities.location import Notice
+from src.core.map import place_homes_for_characters
 
 
 class ReplaySimulation:
@@ -59,58 +61,10 @@ class ReplaySimulation:
         self._init_map_locations()
 
     def _init_map_locations(self):
-        # 从 JSON 加载住宅描述
-        home_desc_config = []
         try:
-            with open("data/locations.json", "r", encoding="utf-8") as f:
-                data = json.load(f)
-                home_desc_config = data.get("home_descriptions", [])
-        except Exception:
-            pass
-
-        # 为居民创建住宅地点
-        # 此逻辑与 Simulation._init_homes 大致一致，以保证地图显示相同
-        center_x, center_y, radius = 400, 300, 250
-
-        # 按住所分组
-        residences = {}
-        for char in self.characters:
-            res_name = char.profile.residence
-            if res_name not in residences:
-                residences[res_name] = []
-            residences[res_name].append(char)
-
-        homes_to_place = [r for r in residences.keys() if r != "酒馆"]
-        num_homes = len(homes_to_place)
-        angle_step = 2 * 3.14159 / num_homes if num_homes > 0 else 0
-
-        for i, home_name in enumerate(homes_to_place):
-            angle = i * angle_step
-            x = int(center_x + radius * math.cos(angle))
-            y = int(center_y + radius * math.sin(angle))
-
-            # 创建地点
-            loc = Location(
-                name=home_name,
-                type=LocationType.HOME,
-                description="",
-                coordinates=(x, y),
-            )
-            self.game_map.add_location(loc)
-            self.game_map.connect_locations(home_name, "小镇广场")
-
-            for char in residences[home_name]:
-                char.profile.home_location = home_name
-                char.current_location = home_name
-                char.position = (x, y)
-
-        if "酒馆" in residences:
-            saloon = self.game_map.get_location("酒馆")
-            if saloon:
-                for char in residences["酒馆"]:
-                    char.profile.home_location = "酒馆"
-                    char.current_location = "酒馆"
-                    char.position = saloon.coordinates
+            place_homes_for_characters(self.game_map, self.characters)
+        except Exception as e:
+            logger.error(f"Failed to init map locations for replay: {e}")
 
     def _load_log(self):
         try:
@@ -155,8 +109,31 @@ class ReplaySimulation:
             self._update_character_states()
             self._update_notice_board()
 
+    def toggle_pause(self):
+        self.paused = not self.paused
+
+    def change_speed(self, delta: float):
+        self.speed = max(0.5, min(10.0, self.speed + delta))
+
+    def jump_minutes(self, minutes: int):
+        if not self.current_time:
+            return
+        if minutes > 0 and self.end_time:
+            self.current_time = min(
+                self.end_time, self.current_time + timedelta(minutes=minutes)
+            )
+        elif minutes < 0 and self.start_time:
+            self.current_time = max(
+                self.start_time, self.current_time + timedelta(minutes=minutes)
+            )
+        self.game_time.current_time = self.current_time
+        self._update_character_states()
+        self._update_notice_board()
+
+    def set_time_by_progress(self, progress: float):
+        self.set_time(progress)
+
     def set_time(self, progress: float):
-        """Set time based on progress (0.0 to 1.0)"""
         if not self.start_time or not self.end_time:
             return
 
@@ -168,14 +145,13 @@ class ReplaySimulation:
         self._update_notice_board()
 
     def _update_notice_board(self):
-        """根据当前时间重建公告板状态"""
+        """重建公告板状态"""
         square = self.game_map.get_location("小镇广场")
         if not square:
             return
 
         # 收集所有截止到当前时间的公告发布事件
         valid_notices = []
-        from src.core.map import Notice
 
         for event in self.events:
             if event["_dt"] > self.current_time:
@@ -203,9 +179,6 @@ class ReplaySimulation:
         square.notices = valid_notices[:5]
 
     def _update_character_states(self):
-        # 是否先重置所有居民为空闲/家中？
-        # 不，改为查找每个居民的活动计划。
-
         # char_name -> 最新计划事件 映射
         active_plans = {}
 
@@ -264,8 +237,8 @@ class ReplaySimulation:
             else:
                 char.status = "Idle"
                 char.emoji = "👤"
-                # 是否重置回家？
-                # char.current_location = char.profile.home_location
+                # 重置回家
+                char.current_location = char.profile.home_location
 
         # 应用对话（覆盖状态）
         for diag in recent_dialogues:

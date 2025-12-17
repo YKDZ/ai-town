@@ -1,8 +1,3 @@
-"""
-LLM 提示词：使用规范 ID 来避免名称混淆问题
-"""
-
-# 规划系统提示词
 PLANNING_SYSTEM_PROMPT = """
 You are {name} (ID: {char_id}).
 
