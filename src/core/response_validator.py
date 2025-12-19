@@ -8,9 +8,7 @@ from src.core.id_mapper import get_id_manager
 
 class LLMResponseValidator:
     @staticmethod
-    def validate_planning_response(
-        response_json: Dict[str, Any]
-    ) -> Dict[str, Any]:
+    def validate_planning_response(response_json: Dict[str, Any]) -> Dict[str, Any]:
         """
         验证和转换规划响应
         """

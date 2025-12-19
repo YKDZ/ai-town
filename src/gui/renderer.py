@@ -98,7 +98,8 @@ class Renderer:
         # 3. 简单动作翻译
         return self._translate_simple_action(status)
 
-    def _translate_simple_action(self, action: str) -> str:
+    @staticmethod
+    def _translate_simple_action(action: str) -> str:
         mapping = {
             "Idle": "空闲",
             "Thinking...": "思考中...",
@@ -173,7 +174,8 @@ class Renderer:
 
         return self._get_chinese_font(size)
 
-    def _get_chinese_font(self, size: int, bold: bool = False) -> pygame.font.Font:
+    @staticmethod
+    def _get_chinese_font(size: int, bold: bool = False) -> pygame.font.Font:
         font_names = [
             "WenQuanYi Micro Hei",
             "Noto Sans CJK SC",

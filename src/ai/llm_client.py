@@ -1,34 +1,44 @@
 import os
+from typing import Optional, List
 
 from dotenv import load_dotenv
 from loguru import logger
 from openai import OpenAI
+from typing import Any  # 为了使用原始 dict 并忽略类型检查
 
 load_dotenv()
 
-# 将 socks:// 代理前缀替换为 socks5://，以兼容某些库要求
-for key in [
+for key in (
     "HTTP_PROXY",
     "HTTPS_PROXY",
     "http_proxy",
     "https_proxy",
     "ALL_PROXY",
     "all_proxy",
-]:
+):
     if os.environ.get(key, "").startswith("socks://"):
         os.environ[key] = os.environ[key].replace("socks://", "socks5://")
 
 
 class LLMClient:
-    def __init__(self, api_key=None, base_url=None, model=None, temperature=None):
-        self.api_key = api_key or os.getenv("OPENAI_API_KEY")
-        self.base_url = base_url or os.getenv("OPENAI_BASE_URL")
-        self.model = model or os.getenv("LLM_MODEL", "gpt-3.5-turbo")
-        self.temperature = (
+    def __init__(
+        self,
+        api_key: Optional[str] = None,
+        base_url: Optional[str] = None,
+        model: Optional[str] = None,
+        temperature: Optional[float] = None,
+    ) -> None:
+        self.api_key: Optional[str] = api_key or os.getenv("OPENAI_API_KEY")
+        self.base_url: Optional[str] = base_url or os.getenv("OPENAI_BASE_URL")
+        self.model: str = model or os.getenv("LLM_MODEL", "gpt-3.5-turbo")
+        self.temperature: float = (
             float(temperature)
             if temperature is not None
             else float(os.getenv("LLM_TEMPERATURE", "0.7"))
         )
+
+        # OpenAI 客户端在未配置 API Key 时为空
+        self.client: Optional[OpenAI]
 
         if not self.api_key:
             logger.warning(
@@ -38,7 +48,7 @@ class LLMClient:
         else:
             self.client = OpenAI(api_key=self.api_key, base_url=self.base_url)
 
-    def check_connection(self):
+    def check_connection(self) -> None:
         """检查 LLM 提供者是否可达并能正常工作。"""
         if not self.client:
             raise ValueError(
@@ -49,7 +59,7 @@ class LLMClient:
             logger.info(f"Checking LLM connection to {self.base_url or 'OpenAI'}...")
             self.client.chat.completions.create(
                 model=self.model,
-                messages=[{"role": "user", "content": "ping"}],
+                messages=[{"role": "user", "content": "ping"}],  # type: ignore[arg-type]
                 max_tokens=1,
             )
             logger.info("LLM connection successful.")
@@ -66,7 +76,7 @@ class LLMClient:
             logger.debug(
                 f"LLM Request [Text]:\nSystem: {system_prompt}\nUser: {prompt}"
             )
-            response = self.client.chat.completions.create(
+            response = self.client.chat.completions.create(  # type: ignore[call-arg]
                 model=self.model,
                 messages=[
                     {"role": "system", "content": system_prompt},
@@ -85,7 +95,6 @@ class LLMClient:
     def get_json_completion(
         self, prompt: str, system_prompt: str = "You are a helpful assistant."
     ) -> str:
-        # 针对结构化输出，可能希望强制 JSON 模式（如果支持），目前使用简单提示。
         if not self.client:
             return "{}"
 
@@ -93,7 +102,8 @@ class LLMClient:
             logger.debug(
                 f"LLM Request [JSON]:\nSystem: {system_prompt}\nUser: {prompt}"
             )
-            response = self.client.chat.completions.create(
+
+            response = self.client.chat.completions.create(  # type: ignore[call-arg]
                 model=self.model,
                 messages=[
                     {

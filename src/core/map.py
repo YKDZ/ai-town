@@ -2,8 +2,8 @@ import json
 import math
 from typing import Dict, Optional, List
 
+from src.entities.character import Character
 from src.entities.location import Location, LocationType
-
 
 class GameMap:
     def __init__(self):
@@ -30,7 +30,7 @@ class GameMap:
                         english_name=loc_data.get("english_name"),
                         type=loc_type,
                         description=loc_data["description"],
-                        coordinates=tuple(loc_data["coordinates"]),
+                        coordinates=tuple(loc_data["coordinates"]), # type: ignore[arg-type]
                     )
                 )
 
@@ -79,22 +79,9 @@ class GameMap:
         return home_name
 
 
-def place_homes_for_characters(game_map: "GameMap", characters: List["Character"]):
-    """将角色按其 residence 在地图上生成住宅并连到小镇广场，同时初始化角色位置。
-
-    行为与 Simulation._init_homes / ReplaySimulation._init_map_locations 保持一致：
-    - 以环形对称布局住宅（中心 400,300；半径 250）。
-    - 住宅与 "小镇广场" 互连。
-    - 对 residence == "酒馆" 的居民，不新建住宅，直接定位到已存在的 "酒馆"。
-    - 住宅描述：尽量从 data/locations.json 的 home_descriptions 匹配；否则使用默认。
-    - 住宅英文名：优先取角色 profile.english_home_location（同一住宅取第一位角色的值）。
-    - 初始化角色的 profile.home_location、current_location 与 position。
+def place_homes_for_characters(game_map: GameMap, characters: List[Character]):
+    """将角色按其 residence 在地图上生成住宅并连到小镇广场，同时初始化角色位置
     """
-    # 局部导入以避免循环依赖（Character 类型注解仅作文档用途）
-    try:
-        from src.entities.character import Character  # noqa: F401
-    except Exception:
-        pass
 
     # 分组：residence -> [characters]
     residences: Dict[str, List] = {}

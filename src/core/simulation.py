@@ -57,6 +57,11 @@ class Simulation:
         self.characters: List[Character] = []
         self.llm_client = LLMClient()
 
+        # 为统一接口：记录模拟开始时间，并提供 current_time 只读属性
+        # 一些渲染/回放逻辑会访问 sim.start_time / sim.current_time
+        # 在实时模拟中：start_time 为初始化的游戏时间；current_time 来自 game_time
+        self.start_time = self.game_time.current_time
+
         # 启动前检查 LLM 可用性
         try:
             self.llm_client.check_connection()
@@ -71,12 +76,22 @@ class Simulation:
         end_day = self.game_time.current_time + timedelta(days=duration_days)
         self.end_time = end_day.replace(hour=22, minute=0, second=0, microsecond=0)
 
+        # 为了与回放模式的接口保持一致，提供默认的回放相关属性，
+        # 仅用于类型检查/渲染层读取，不改变实时模拟的控制逻辑。
+        self.paused = False  # 实时模拟并不存在“暂停回放”的语义，默认 False
+        self.speed = 1.0  # 实时模拟的推进倍率恒为 1.0
+
         self.interaction_cooldowns = {}
         self.logger = SimulationLogger()
 
         self._load_characters()
         self._init_id_mappings()
         self._init_homes()
+
+    # 提供与回放模式一致的时间访问接口，便于类型检查与 IDE 提示
+    @property
+    def current_time(self):
+        return self.game_time.current_time
 
     def _load_characters(self):
         if not os.path.exists(self.humanity_path):
@@ -224,10 +239,8 @@ class Simulation:
         self.game_time.tick(minutes=Config.MINUTES_PER_TICK)
         sim_time_var.set(self.game_time.get_display_string())
 
-        # 处于最后一天晚上（20点之后）且所有人都睡觉时结束模拟
-        early_end_threshold = self.end_time - timedelta(
-            hours=2
-        )
+        # 处于最后一天晚上且所有人都睡觉时结束模拟
+        early_end_threshold = self.end_time - timedelta(hours=2)
         if self.game_time.current_time >= early_end_threshold:
             all_sleeping = all(char.is_sleeping() for char in self.characters)
             if all_sleeping:
@@ -287,9 +300,7 @@ class Simulation:
                 # 触发对话
                 self._trigger_conversation(c1, c2)
 
-                # 设置冷却时间
-                # 动态冷却：如果当前位置人数较多（>=3），视为社交聚会，大幅缩短冷却时间（例如 15 分钟）
-                # 否则使用默认冷却时间（例如 60 分钟）
+                # 当前位置人数较多，视为聚会，缩短冷却时间
                 cooldown_minutes = Config.INTERACTION_COOLDOWN_MINUTES
                 if len(chars) >= 3:
                     cooldown_minutes = 15
@@ -419,25 +430,9 @@ class Simulation:
                 memory="\n".join(c1.memory),
             )
 
-            client_c1 = c1.llm_client or self.llm_client
-            response_c1 = client_c1.get_json_completion(
-                user_prompt_c1, system_prompt=system_prompt_c1
+            content_c1 = self._get_dialogue_content(
+                c1, user_prompt_c1, system_prompt_c1
             )
-            content_c1 = "..."
-            try:
-                response_json = json.loads(response_c1)
-                validated_response = LLMResponseValidator.validate_dialogue_response(
-                    response_json
-                )
-                content_c1 = validated_response.get("content", "...")
-            except (json.JSONDecodeError, ValueError) as e:
-                logger.warning(
-                    f"Failed to validate dialogue response for {c1.profile.name}: {e}"
-                )
-                try:
-                    content_c1 = json.loads(response_c1).get("content", "...")
-                except:
-                    pass
 
             # 为 C2 生成对话（基于 C1 的内容）
             system_prompt_c2 = DIALOGUE_SYSTEM_PROMPT.format(
@@ -459,25 +454,9 @@ class Simulation:
                 memory="\n".join(c2.memory),
             )
 
-            client_c2 = c2.llm_client or self.llm_client
-            response_c2 = client_c2.get_json_completion(
-                user_prompt_c2, system_prompt=system_prompt_c2
+            content_c2 = self._get_dialogue_content(
+                c2, user_prompt_c2, system_prompt_c2
             )
-            content_c2 = "..."
-            try:
-                response_json = json.loads(response_c2)
-                validated_response = LLMResponseValidator.validate_dialogue_response(
-                    response_json
-                )
-                content_c2 = validated_response.get("content", "...")
-            except (json.JSONDecodeError, ValueError) as e:
-                logger.warning(
-                    f"Failed to validate dialogue response for {c2.profile.name}: {e}"
-                )
-                try:
-                    content_c2 = json.loads(response_c2).get("content", "...")
-                except:
-                    pass
 
             # 更新状态以便显示
             c1.status = f"对 {c2.profile.name} 说: {content_c1}"
@@ -518,6 +497,35 @@ class Simulation:
         finally:
             c1.is_thinking = False
             c2.is_thinking = False
+
+    def _get_dialogue_content(
+        self, speaker: Character, user_prompt: str, system_prompt: str
+    ) -> str:
+        """统一生成并解析对话内容，去重相同逻辑。
+
+        逻辑：
+        - 选择角色自定义 LLM 或默认客户端
+        - 请求 JSON 响应并用校验器解析
+        - 失败时回退到直接提取 content 字段
+        """
+        client = speaker.llm_client or self.llm_client
+        response = client.get_json_completion(user_prompt, system_prompt=system_prompt)
+
+        content = "..."
+        try:
+            response_json = json.loads(response)
+            validated = LLMResponseValidator.validate_dialogue_response(response_json)
+            content = validated.get("content", "...")
+        except (json.JSONDecodeError, ValueError) as e:
+            logger.warning(
+                f"Failed to validate dialogue response for {speaker.profile.name}: {e}"
+            )
+            try:
+                content = json.loads(response).get("content", "...")
+            except Exception:
+                pass
+
+        return content
 
     def _update_character(self, char: Character):
         if char.busy_until and self.game_time.current_time < char.busy_until:

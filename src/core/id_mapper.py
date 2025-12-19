@@ -44,10 +44,13 @@ class _ZhEnDisplayMixin:
 
     def _normalize_output_common(self: _MapperLike, text: str) -> str:
         # 将形如 {{id}} 或 [id] 的占位符替换为中文名称
+        # 合并两处几乎相同的正则为一个分支，避免冗余并保持等价行为
         result = text
         for cid, zh_name in self.id_to_zh.items():
-            result = re.sub(rf"\{{\{{[\s]*{re.escape(cid)}[\s]*\}}\}}", zh_name, result)
-            result = re.sub(rf"\[[\s]*{re.escape(cid)}[\s]*\]", zh_name, result)
+            pattern = (
+                rf"(?:\{{\{{\s*{re.escape(cid)}\s*\}}\}}|\[\s*{re.escape(cid)}\s*\])"
+            )
+            result = re.sub(pattern, zh_name, result)
         return result
 
 
